@@ -1,0 +1,62 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type FideResponse {
+  id: Float!
+}
+
+type HistoryEntry {
+  date: String!
+  rating: Int!
+  games: Int
+}
+
+type Player {
+  fide_id: String!
+  name: String
+  title: String
+  country: String
+  federation: String
+  birth_year: Float
+  rating: Float
+  sex: String
+  world_rank_active: Float
+  world_rank_all: Float
+  national_rank_active: Float
+  national_rank_all: Float
+  continental_rank_active: Float
+  continental_rank_all: Float
+  age: Float
+  history: [HistoryEntry!]
+}
+
+type Players {
+  players: [Player!]
+}
+
+type Query {
+  fides: [FideResponse!]!
+  fide(id: Int!): FideResponse!
+  topPlayers(limit: Int! = 100, includeHistory: Boolean! = false): [Player!]!
+  playerHistory(fideId: String!): [HistoryEntry!]!
+  playerInfo(fideId: String!, includeHistory: Boolean! = false): Player!
+  multiplePlayersInfo(fideIds: [String!]!): Players!
+}
+
+type Mutation {
+  createFide(createFideInput: CreateFideInput!): FideResponse!
+  updateFide(updateFideInput: UpdateFideInput!): FideResponse!
+  removeFide(id: Int!): FideResponse!
+}
+
+input CreateFideInput {
+  """Example field (placeholder)"""
+  exampleField: Int!
+}
+
+input UpdateFideInput {
+  """Example field (placeholder)"""
+  exampleField: Int
+  id: Int!
+}
