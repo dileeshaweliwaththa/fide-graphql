@@ -1,0 +1,70 @@
+# Query to get top players with optional history
+query GetTopPlayers($limit: Int = 100, $includeHistory: Boolean = false) {
+  topPlayers(limit: $limit, includeHistory: $includeHistory) {
+    rank
+    name
+    fide_id
+    title
+    country
+    rating
+    games
+    birth_year
+    age
+    # Include history field only if requested
+    history @include(if: $includeHistory) {
+      period
+      classical_rating
+      classical_games
+      rapid_rating
+      rapid_games
+      blitz_rating
+      blitz_games
+      date
+    }
+  }
+}
+
+# Query to get player history by FIDE ID
+query GetPlayerHistory($fideId: String!) {
+  playerHistory(fideId: $fideId) {
+    period
+    classical_rating
+    classical_games
+    rapid_rating
+    rapid_games
+    blitz_rating
+    blitz_games
+    date
+  }
+}
+
+# Query to get player info with optional history
+query GetPlayerInfo($fideId: String!, $includeHistory: Boolean = false) {
+  playerInfo(fideId: $fideId, includeHistory: $includeHistory) {
+    fide_id
+    name
+    country
+    birth_year
+    title
+    rating
+    age
+    # Include history field only if requested
+    history @include(if: $includeHistory) {
+      period
+      classical_rating
+      classical_games
+      rapid_rating
+      rapid_games
+      blitz_rating
+      blitz_games
+      date
+    }
+  }
+}
+
+# Sample query variables for testing
+# {
+#   "limit": 10,
+#   "includeHistory": true,
+#   "fideId": "5000017"
+# }
