@@ -4,8 +4,6 @@ services:
         build:
             context: .
             dockerfile: dockerfile
-            args:
-                - NODE_ENV=dev
         restart: always
         ports:
-            - '5002:5002'
+            - '5100:5100'
