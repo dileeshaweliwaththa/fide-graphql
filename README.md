@@ -48,17 +48,44 @@ npm run start:prod
 Access player data with clean, intuitive queries:
 
 ```graphql
-query GetPlayer {
-  player(fideId: "12345678") {
+query {
+  playerInfo(fideId: "13413937", includeHistory: true) {
+    fide_id
     name
-    title
     country
+    birth_year
+    title
     rating
-    history {
-      period
-      rating
-      games
-    }
+    world_rank_all
+    world_rank_active
+    national_rank_all
+    continental_rank_all
+    national_rank_active
+    continental_rank_active
+    sex
+  }
+}
+
+query {
+  multiplePlayersInfo(
+    fideIds: ["5000017", "5000056", "5000076"]
+
+  ) {
+players{
+    fide_id
+    name
+    country
+    birth_year
+    title
+    rating
+    world_rank_all
+    world_rank_active
+    national_rank_all
+    continental_rank_all
+    national_rank_active
+    continental_rank_active
+    sex
+}
   }
 }
 ```
