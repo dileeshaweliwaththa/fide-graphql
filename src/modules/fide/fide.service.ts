@@ -64,11 +64,12 @@ export class FideService {
         data: playerInfo,
       };
     } catch (error) {
-      throw new NotFoundException({
+      // Return error response instead of throwing exception
+      return {
         success: false,
         message: `Failed to fetch player info: ${error.message}`,
-        data: null
-      });
+        data: undefined
+      };
     }
   }
 
@@ -114,7 +115,7 @@ export class FideService {
       const response = await firstValueFrom(
         this.httpService.get(profileUrl).pipe(
           catchError(error => {
-            throw new Error(`HTTP request failed: ${error.message}`);
+            throw new NotFoundException(`HTTP request failed: ${error.message}`);
           })
         )
       );
@@ -124,7 +125,7 @@ export class FideService {
       
       // Check if player info is null (player not found)
       if (playerInfo === null) {
-        throw new Error(`Player with ID ${fideId} not found`);
+        throw new NotFoundException(`Player with ID ${fideId} not found`);
       }
       
       // Now it's safe to add history since we know playerInfo is not null
@@ -134,7 +135,7 @@ export class FideService {
       
       return playerInfo;
     } catch (error) {
-      throw new Error(`Failed to fetch data for player ID ${fideId}: ${error.message}`);
+      throw new NotFoundException(`Failed to fetch data for player ID ${fideId}: ${error.message}`);
     }
   }
 }
