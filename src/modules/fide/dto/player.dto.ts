@@ -2,7 +2,31 @@ import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { HistoryEntry } from './history-entry.dto';
 
 @ObjectType()
-export class Player {
+export class PlayerResponseDTO{
+  @Field()
+  success: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  @Field(() => PlayerDTO, { nullable: true })
+  data?: PlayerDTO;
+}
+
+@ObjectType()
+export class PlayersResponseDTO{
+  @Field()
+  success: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  @Field(() => [PlayerDTO], { nullable: true })
+  data?: PlayerDTO[];
+}
+
+@ObjectType()
+export class PlayerDTO {
   @Field()
   fide_id: string;
 
@@ -53,7 +77,7 @@ export class Player {
 }
 
 @ObjectType()
-export class Players {
-  @Field(() => [Player], { nullable: true })
-  players?: Player[];
+export class PlayersDTO {
+  @Field(() => [PlayerDTO], { nullable: true })
+  players?: PlayerDTO[];
 }

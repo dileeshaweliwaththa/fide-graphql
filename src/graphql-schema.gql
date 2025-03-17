@@ -2,17 +2,13 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
-type FideResponse {
-  id: Float!
-}
-
 type HistoryEntry {
   date: String!
   rating: Int!
   games: Int
 }
 
-type Player {
+type PlayerDTO {
   fide_id: String!
   name: String
   title: String
@@ -31,32 +27,13 @@ type Player {
   history: [HistoryEntry!]
 }
 
-type Players {
-  players: [Player!]
+type PlayersDTO {
+  players: [PlayerDTO!]
 }
 
 type Query {
-  fides: [FideResponse!]!
-  fide(id: Int!): FideResponse!
-  topPlayers(limit: Int! = 100, includeHistory: Boolean! = false): [Player!]!
+  topPlayers(limit: Int! = 100, includeHistory: Boolean! = false): [PlayerDTO!]!
   playerHistory(fideId: String!): [HistoryEntry!]!
-  playerInfo(fideId: String!, includeHistory: Boolean! = false): Player!
-  multiplePlayersInfo(fideIds: [String!]!): Players!
-}
-
-type Mutation {
-  createFide(createFideInput: CreateFideInput!): FideResponse!
-  updateFide(updateFideInput: UpdateFideInput!): FideResponse!
-  removeFide(id: Int!): FideResponse!
-}
-
-input CreateFideInput {
-  """Example field (placeholder)"""
-  exampleField: Int!
-}
-
-input UpdateFideInput {
-  """Example field (placeholder)"""
-  exampleField: Int
-  id: Int!
+  playerInfo(fideId: String!, includeHistory: Boolean! = false): PlayerDTO!
+  multiplePlayersInfo(fideIds: [String!]!): PlayersDTO!
 }
