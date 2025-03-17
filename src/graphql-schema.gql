@@ -27,13 +27,21 @@ type PlayerDTO {
   history: [HistoryEntry!]
 }
 
-type PlayersDTO {
-  players: [PlayerDTO!]
+type PlayerResponseDTO {
+  success: Boolean!
+  message: String
+  data: PlayerDTO
+}
+
+type PlayersResponseDTO {
+  success: Boolean!
+  message: String
+  data: [PlayerDTO!]
 }
 
 type Query {
   topPlayers(limit: Int! = 100, includeHistory: Boolean! = false): [PlayerDTO!]!
   playerHistory(fideId: String!): [HistoryEntry!]!
-  playerInfo(fideId: String!, includeHistory: Boolean! = false): PlayerDTO!
-  multiplePlayersInfo(fideIds: [String!]!): PlayersDTO!
+  playerInfo(fideId: String!, includeHistory: Boolean! = false): PlayerResponseDTO!
+  multiplePlayersInfo(fideIds: [String!]!): PlayersResponseDTO!
 }
