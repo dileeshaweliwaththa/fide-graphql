@@ -122,6 +122,12 @@ export class FideService {
       const htmlDoc = response?.data;
       const playerInfo = scraper.get_player_info(htmlDoc) as PlayerDTO;
       
+      // Check if player info is null (player not found)
+      if (playerInfo === null) {
+        throw new Error(`Player with ID ${fideId} not found`);
+      }
+      
+      // Now it's safe to add history since we know playerInfo is not null
       if (includeHistory) {
         playerInfo.history = scraper.get_player_history(htmlDoc);
       }

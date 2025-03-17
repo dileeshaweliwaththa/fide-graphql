@@ -125,7 +125,7 @@ export function get_player_history(htmlDoc: string): PlayerHistory[] {
   return history;
 }
 
-export function get_player_info(htmlDoc: string): PlayerInfo {
+export function get_player_info(htmlDoc: string): PlayerInfo | null {
   const $ = cheerio.load(htmlDoc);
   
   // Group selectors by category for better organization
@@ -169,10 +169,19 @@ export function get_player_info(htmlDoc: string): PlayerInfo {
     return text && /^\d+$/.test(text) ? parseInt(text, 10) : null;
   };
 
+  // Check if this is a valid player profile
+  const name = getText(selectors.basicInfo.name);
+  const fideId = getText(selectors.basicInfo.fide_id);
+  
+  // If critical player data is missing, return null
+  if (!name || !fideId) {
+    return null;
+  }
+
   // Extract data using the helper functions
   const playerInfo: PlayerInfo = {
-    fide_id: getText(selectors.basicInfo.fide_id),
-    name: getText(selectors.basicInfo.name),
+    fide_id: fideId,
+    name: name,
     title: getText(selectors.basicInfo.title),
     country: getText(selectors.basicInfo.country),
     birth_year: getNumber(selectors.basicInfo.birth_year),
@@ -196,47 +205,4 @@ export function get_player_info(htmlDoc: string): PlayerInfo {
   return playerInfo;
 }
 
-/**
- * Fetches information for multiple players in parallel
- * @param fideIds Array of FIDE IDs to fetch
- * @returns Promise resolving to an array of player information objects
- */
-export async function get_multiple_players_info(fideIds: string[]): Promise<PlayerInfo[]> {
-  // Helper function to fetch HTML for a player profile
-  const fetchPlayerHtml = async (fideId: string): Promise<string> => {
-    try {
-      // Use node-fetch, axios, or your preferred HTTP client
-      const response = await fetch(`https://ratings.fide.com/profile/${fideId}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return await response.text();
-    } catch (error) {
-      console.error(`Failed to fetch player ${fideId}:`, error);
-      throw error;
-    }
-  };
 
-  // Create an array of promises to process in parallel
-  const playerPromises = fideIds.map(async (fideId) => {
-    try {
-      const html = await fetchPlayerHtml(fideId);
-      console.log('XXXXXXXXXXXXX',html);
-      return get_player_info(html);
-    } catch (error) {
-      // Return a minimal object with fide_id to indicate error
-      console.error(`Error processing player ${fideId}:`, error);
-      return {
-        fide_id: fideId,
-        name: `Error fetching ${fideId}`,
-        country: '',
-        birth_year: null,
-        title: '',
-        rating: 0
-      };
-    }
-  });
-
-  // Execute all promises in parallel for maximum performance
-  return await Promise.all(playerPromises);
-}
