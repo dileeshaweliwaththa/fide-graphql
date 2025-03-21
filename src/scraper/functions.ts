@@ -138,7 +138,7 @@ export function get_player_info(htmlDoc: string): PlayerInfo | null {
       birth_year: ".profile-info-byear",
       sex: ".profile-info-sex",
       name: ".player-title",
-      rating: ".profile-top-rating-data"
+rating: ".profile-games .profile-standard.profile-game p"
     },
     // Rankings
     rankings: {
@@ -185,7 +185,7 @@ export function get_player_info(htmlDoc: string): PlayerInfo | null {
     title: getText(selectors.basicInfo.title),
     country: getText(selectors.basicInfo.country),
     birth_year: getNumber(selectors.basicInfo.birth_year),
-    rating: getNumber(selectors.basicInfo.rating) || 0,
+    rating: 0,  // Initialize with default
     sex: getText(selectors.basicInfo.sex) || null,
     
     // Rankings
@@ -197,6 +197,37 @@ export function get_player_info(htmlDoc: string): PlayerInfo | null {
     continental_rank_all: getNumber(selectors.rankings.continental.all),
   };
 
+ // Extract rating with more debugging
+ const ratingElement = $(selectors.basicInfo.rating);
+ console.log('Rating selector:', selectors.basicInfo.rating);
+ console.log('Rating element length:', ratingElement.length);
+ console.log('Rating element text:', ratingElement.text());
+ 
+ if (ratingElement.length > 0) {
+   const ratingText = ratingElement.text().trim();
+   console.log('Rating text (trimmed):', ratingText);
+   playerInfo.rating = parseInt(ratingText, 10) || 0;
+ } else {
+   // Fallback approach - try searching for the rating in different locations
+   const allParagraphs = $('p');
+   console.log('Total paragraphs:', allParagraphs.length);
+   
+   // Initialize a flag to track if we've found a rating
+   let ratingFound = false;
+   
+   allParagraphs.each((i, elem) => {
+     // Skip if we've already found a rating
+     if (ratingFound) return;
+     
+     const text = $(elem).text().trim();
+     if (/^\d{4}$/.test(text)) {  // Looking for a 4-digit number which is likely a rating
+       console.log('Potential rating found:', text);
+       playerInfo.rating = parseInt(text, 10);
+       ratingFound = true; // Mark that we've found a rating to stop searching
+     }
+   });
+ }
+ 
   // Calculate age if birth year is available
   if (playerInfo.birth_year) {
     playerInfo.age = new Date().getFullYear() - playerInfo.birth_year;
