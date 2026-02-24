@@ -197,36 +197,20 @@ rating: ".profile-games .profile-standard.profile-game p"
     continental_rank_all: getNumber(selectors.rankings.continental.all),
   };
 
- // Extract rating with more debugging
- const ratingElement = $(selectors.basicInfo.rating);
- console.log('Rating selector:', selectors.basicInfo.rating);
- console.log('Rating element length:', ratingElement.length);
- console.log('Rating element text:', ratingElement.text());
- 
- if (ratingElement.length > 0) {
-   const ratingText = ratingElement.text().trim();
-   console.log('Rating text (trimmed):', ratingText);
-   playerInfo.rating = parseInt(ratingText, 10) || 0;
- } else {
-   // Fallback approach - try searching for the rating in different locations
-   const allParagraphs = $('p');
-   console.log('Total paragraphs:', allParagraphs.length);
-   
-   // Initialize a flag to track if we've found a rating
-   let ratingFound = false;
-   
-   allParagraphs.each((i, elem) => {
-     // Skip if we've already found a rating
-     if (ratingFound) return;
-     
-     const text = $(elem).text().trim();
-     if (/^\d{4}$/.test(text)) {  // Looking for a 4-digit number which is likely a rating
-       console.log('Potential rating found:', text);
-       playerInfo.rating = parseInt(text, 10);
-       ratingFound = true; // Mark that we've found a rating to stop searching
-     }
-   });
- }
+  const ratingElement = $(selectors.basicInfo.rating);
+  if (ratingElement.length > 0) {
+    playerInfo.rating = parseInt(ratingElement.text().trim(), 10) || 0;
+  } else {
+    // Fallback: walk paragraphs until we find the first 4-digit number.
+    // `return false` from a cheerio .each() callback breaks the loop early.
+    $('p').each((_i, elem) => {
+      const text = $(elem).text().trim();
+      if (/^\d{4}$/.test(text)) {
+        playerInfo.rating = parseInt(text, 10);
+        return false; // break — stops cheerio iterating the rest of the DOM
+      }
+    });
+  }
  
   // Calculate age if birth year is available
   if (playerInfo.birth_year) {
