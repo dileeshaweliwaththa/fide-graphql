@@ -1,0 +1,28 @@
+FROM alpine:3.19
+
+# openssh-client + sshpass (password auth) + netcat-openbsd (healthcheck)
+RUN apk add --no-cache openssh-client sshpass netcat-openbsd
+
+# Healthcheck: is the SOCKS5 port accepting connections?
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=5 \
+  CMD nc -z localhost 1080 || exit 1
+
+# SSH_TUNNEL_PASS is read by sshpass via SSHPASS env var at runtime.
+# The tunnel host is passed as CMD so it can be overridden per-environment.
+
+# sshpass -e  → reads password from $SSHPASS env var (no tty / pipe needed)
+ENTRYPOINT [ \
+  "sshpass", "-e", \
+  "ssh", \
+  "-D", "0.0.0.0:1080", \
+  "-N", \
+  "-o", "StrictHostKeyChecking=no", \
+  "-o", "PasswordAuthentication=yes", \
+  "-o", "PubkeyAuthentication=no", \
+  "-o", "ServerAliveInterval=30", \
+  "-o", "ServerAliveCountMax=3", \
+  "-o", "ConnectTimeout=10" \
+]
+
+# default target — override via SSH_TUNNEL_HOST in .env
+CMD ["root@194.76.27.9"]

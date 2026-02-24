@@ -1,5 +1,31 @@
-version: '3'
+version: '3.8'
+
+# ─── SSH Tunnel target ────────────────────────────────────────────────────────
+# Set SSH_TUNNEL_HOST in .env (copy from .env.example).
+# Default: root@194.76.27.9 (eukhost — non-Azure IP)
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
+    # ── SOCKS5 tunnel sidecar ─────────────────────────────────────────────────
+    # Opens an SSH -D 1080 tunnel to eukhost so the app can route FIDE
+    # requests through a non-Azure IP.  You never need to touch this manually.
+    ssh-tunnel:
+        build:
+            context: .
+            dockerfile: dockerfile.ssh-tunnel
+        command: ["${SSH_TUNNEL_HOST:-root@194.76.27.9}"]
+        restart: always
+        environment:
+            # sshpass reads the password from $SSHPASS — set SSH_TUNNEL_PASS in .env
+            - SSHPASS=${SSH_TUNNEL_PASS}
+        healthcheck:
+            test: ["CMD", "nc", "-z", "localhost", "1080"]
+            interval: 10s
+            timeout: 5s
+            start_period: 20s
+            retries: 5
+
+    # ── NestJS app ────────────────────────────────────────────────────────────
     app-dev:
         build:
             context: .
@@ -7,3 +33,19 @@ services:
         restart: always
         ports:
             - '5100:5100'
+        environment:
+            # Proxy candidates tried in order (comma-separated):
+            #   direct           = no proxy (try Azure IP first — fast if not blocked)
+            #   socks5://…       = fall back to SSH tunnel sidecar
+            # ProxyManagerService probes on startup and auto-rotates on failure.
+            - FIDE_PROXY_URLS=${FIDE_PROXY_URLS:-direct,socks5://ssh-tunnel:1080}
+        depends_on:
+            ssh-tunnel:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "wget", "-qO-", "http://localhost:5100/health"]
+            interval: 30s
+            timeout: 10s
+            start_period: 30s
+            retries: 3
+

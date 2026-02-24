@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { FideModule } from './modules/fide/fide.module';
+import { HealthController } from './health/health.controller';
 import { join } from 'path';
 
 @Module({
@@ -13,5 +14,6 @@ import { join } from 'path';
     }),
     FideModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
