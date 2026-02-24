@@ -64,10 +64,20 @@ export class FideService {
         data: playerInfo,
       };
     } catch (error) {
+      // Log the full error for debugging (VM vs local differences)
+      console.error('[getPlayerInfo] Error fetching player info', {
+        fideId,
+        includeHistory,
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack,
+        responseStatus: error?.response?.status,
+      });
+
       // Return error response instead of throwing exception
       return {
         success: false,
-        message: `Failed to fetch player info: ${error.message}`,
+        message: `Failed to fetch player info: ${error?.message}`,
         data: undefined
       };
     }
@@ -112,19 +122,44 @@ export class FideService {
     const profileUrl = `https://ratings.fide.com/profile/${fideId}`;
     
     try {
+      console.debug('[fetchPlayerData] Requesting player profile', {
+        fideId,
+        profileUrl,
+        includeHistory,
+        timestamp: new Date().toISOString(),
+        env: process.env.NODE_ENV || 'unknown',
+      });
+
       const response = await firstValueFrom(
         this.httpService.get(profileUrl).pipe(
           catchError(error => {
-            throw new NotFoundException(`HTTP request failed: ${error.message}`);
+            console.error('[fetchPlayerData] HTTP request error (pipe)', {
+              fideId,
+              profileUrl,
+              message: error?.message,
+              code: error?.code,
+              config: error?.config,
+              responseStatus: error?.response?.status,
+            });
+
+            throw new NotFoundException(`HTTP request failed: ${error?.message}`);
           })
         )
       );
       
       const htmlDoc = response?.data;
+
+      console.debug('[fetchPlayerData] HTTP response received', {
+        fideId,
+        status: response?.status,
+        headers: response?.headers && Object.keys(response.headers).slice(0, 10),
+        bodyPreview: typeof htmlDoc === 'string' ? htmlDoc.slice(0, 200) : null,
+      });
       const playerInfo = scraper.get_player_info(htmlDoc) as PlayerDTO;
       
       // Check if player info is null (player not found)
       if (playerInfo === null) {
+        console.warn('[fetchPlayerData] Player not found in HTML', { fideId, profileUrl });
         throw new NotFoundException(`Player with ID ${fideId} not found`);
       }
       
@@ -135,7 +170,17 @@ export class FideService {
       
       return playerInfo;
     } catch (error) {
-      throw new NotFoundException(`Failed to fetch data for player ID ${fideId}: ${error.message}`);
+      // Log full error details to help debugging VM networking issues
+      console.error('[fetchPlayerData] Failed to fetch data for player', {
+        fideId,
+        profileUrl,
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack,
+        responseStatus: error?.response?.status,
+      });
+
+      throw new NotFoundException(`Failed to fetch data for player ID ${fideId}: ${error?.message}`);
     }
   }
 }
