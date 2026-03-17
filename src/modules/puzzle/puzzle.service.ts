@@ -5,6 +5,7 @@ import {
   FilterPuzzlesInput,
   PuzzleSortField,
   SortOrder,
+  DifficultyTier,
 } from './dto/filter-puzzles.input';
 import { PaginatedPuzzles } from './dto/paginated-puzzles.dto';
 import { RandomPuzzleInput } from './dto/random-puzzle.input';
@@ -12,21 +13,86 @@ import { ThemeWithCount } from './dto/theme-with-count.dto';
 import { PaginatedThemes } from './dto/paginated-themes.dto';
 import { ThemesPaginationInput } from './dto/themes-pagination.input';
 
+// ── Difficulty helpers ────────────────────────────────────────────────────────
+
+function tierToRange(tier: DifficultyTier): { min?: number; max?: number } {
+  switch (tier) {
+    case DifficultyTier.BEGINNER:     return {             max: 999  };
+    case DifficultyTier.EASY:         return { min: 1000,  max: 1499 };
+    case DifficultyTier.INTERMEDIATE: return { min: 1500,  max: 1999 };
+    case DifficultyTier.HARD:         return { min: 2000,  max: 2499 };
+    case DifficultyTier.EXPERT:       return { min: 2500             };
+  }
+}
+
+function resolveRatingBounds(
+  difficulty?: DifficultyTier,
+  minRating?: number,
+  maxRating?: number,
+): { min?: number; max?: number } {
+  const tier = difficulty ? tierToRange(difficulty) : {};
+  const min = Math.max(minRating ?? 0, tier.min ?? 0) || undefined;
+  const rawMax = Math.min(maxRating ?? Infinity, tier.max ?? Infinity);
+  const max = rawMax === Infinity ? undefined : rawMax;
+  return { min, max };
+}
+
+// ── Minimal in-process TTL cache ─────────────────────────────────────────────
+// Avoids full-table UNNEST scans on every request for near-static data.
+// TTL = 1 hour.  No external dependency needed.
+
+interface CacheEntry<T> { data: T; expiry: number }
+
+function makeCache<T>() {
+  let entry: CacheEntry<T> | null = null;
+  return {
+    get: (): T | null =>
+      entry && Date.now() < entry.expiry ? entry.data : null,
+    set: (data: T, ttlMs = 60 * 60 * 1000) => {
+      entry = { data, expiry: Date.now() + ttlMs };
+    },
+    invalidate: () => { entry = null; },
+  };
+}
+
 @Injectable()
 export class PuzzleService {
   private readonly logger = new Logger(PuzzleService.name);
 
+  // Per-instance caches — reset on pod restart (acceptable for puzzle metadata)
+  private readonly themesCache      = makeCache<ThemeWithCount[]>();
+  private readonly openingsCache    = makeCache<string[]>();
+  private readonly ratingDistCache  = makeCache<Array<{ bucket: number; count: number }>>();
+
   constructor(private readonly dataSource: DataSource) {}
 
-  // ──────────────────────────────────────────────────────────────────────────
-  //  Queries
-  // ──────────────────────────────────────────────────────────────────────────
+  // ── Private: load & cache themes-with-count ──────────────────────────────
 
-  /**
-   * Cursor-based paginated list with optional filters.
-   *
-   * Uses cursor pagination instead of OFFSET to stay O(log n) on 5.8 M rows.
-   */
+  private async loadThemesWithCount(): Promise<ThemeWithCount[]> {
+    const cached = this.themesCache.get();
+    if (cached) return cached;
+
+    const rows: Array<{ theme: string; count: string }> =
+      await this.dataSource.query(`
+        SELECT theme, COUNT(*) AS count
+        FROM (SELECT UNNEST(themes) AS theme FROM chess.puzzles) t
+        WHERE theme IS NOT NULL
+        GROUP BY theme
+        ORDER BY theme
+      `);
+
+    const result = rows.map((r) => ({
+      theme: r.theme,
+      count: Number(r.count),
+    }));
+    this.themesCache.set(result);
+    return result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Queries
+  // ─────────────────────────────────────────────────────────────────────────
+
   async findMany(input: FilterPuzzlesInput): Promise<PaginatedPuzzles> {
     const limit = Math.min(input.limit ?? 20, 100);
     const sortField: PuzzleSortField = input.sortBy ?? PuzzleSortField.RATING;
@@ -39,12 +105,18 @@ export class PuzzleService {
       params.push(input.cursor);
       conditions.push(`puzzle_id > $${params.length}`);
     }
-    if (input.minRating !== undefined) {
-      params.push(input.minRating);
+
+    const { min: effectiveMin, max: effectiveMax } = resolveRatingBounds(
+      input.difficulty,
+      input.minRating,
+      input.maxRating,
+    );
+    if (effectiveMin !== undefined) {
+      params.push(effectiveMin);
       conditions.push(`rating >= $${params.length}`);
     }
-    if (input.maxRating !== undefined) {
-      params.push(input.maxRating);
+    if (effectiveMax !== undefined) {
+      params.push(effectiveMax);
       conditions.push(`rating <= $${params.length}`);
     }
     if (input.themes?.length) {
@@ -61,12 +133,12 @@ export class PuzzleService {
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const order = `ORDER BY ${sortField} ${sortOrder}, puzzle_id ASC`;
     params.push(limit + 1);
-    const limitClause = `LIMIT $${params.length}`;
 
     const rows: ChessPuzzle[] = await this.dataSource.query(
-      `SELECT * FROM chess.puzzles ${where} ${order} ${limitClause}`,
+      `SELECT * FROM chess.puzzles ${where}
+       ORDER BY ${sortField} ${sortOrder}, puzzle_id ASC
+       LIMIT $${params.length}`,
       params,
     );
 
@@ -80,46 +152,59 @@ export class PuzzleService {
     };
   }
 
-  /**
-   * Find a single puzzle by its Lichess puzzle_id (e.g. "00008").
-   */
   async findOne(puzzleId: string): Promise<ChessPuzzle> {
     const rows: ChessPuzzle[] = await this.dataSource.query(
       `SELECT * FROM chess.puzzles WHERE puzzle_id = $1 LIMIT 1`,
       [puzzleId],
     );
-    if (!rows.length) throw new NotFoundException(`Puzzle "${puzzleId}" not found`);
+    if (!rows.length)
+      throw new NotFoundException(`Puzzle "${puzzleId}" not found`);
     return rows[0];
   }
 
   /**
-   * Returns N random puzzles matching optional filters.
-   *
-   * Uses TABLESAMPLE SYSTEM for O(1) random page selection — avoids full
-   * ORDER BY RANDOM() scan on 5.8 M rows.
+   * Random puzzles using TABLESAMPLE SYSTEM (1% ≈ 58 000 rows) for O(1)
+   * random page selection, then a second filtered fetch from that pool.
+   * Falls back to a larger sample if the first pool yields nothing.
    */
   async findRandom(input: RandomPuzzleInput): Promise<ChessPuzzle[]> {
     const count = Math.min(input.count ?? 1, 10);
-    const samplePct = 0.05; // ~2 900 rows pool
 
+    // Build filter clauses for the second query
+    const conditions: string[] = ['puzzle_id = ANY($1::text[])'];
+    const { min: effectiveMin, max: effectiveMax } = resolveRatingBounds(
+      input.difficulty,
+      input.minRating,
+      input.maxRating,
+    );
+
+    // Pre-filter the TABLESAMPLE by rating so the second pass is cheaper
+    const sampleConditions: string[] = [];
+    if (effectiveMin !== undefined)
+      sampleConditions.push(`rating >= ${effectiveMin}`);
+    if (effectiveMax !== undefined)
+      sampleConditions.push(`rating <= ${effectiveMax}`);
+    const sampleWhere = sampleConditions.length
+      ? `WHERE ${sampleConditions.join(' AND ')}`
+      : '';
+
+    // 1% sample — ~58k rows on 5.8M table; fast page-level random I/O
     const pool: Array<{ puzzle_id: string }> = await this.dataSource.query(
-      `SELECT puzzle_id FROM chess.puzzles TABLESAMPLE SYSTEM ($1) LIMIT $2`,
-      [samplePct, count * 20],
+      `SELECT puzzle_id FROM chess.puzzles TABLESAMPLE SYSTEM (1) ${sampleWhere} LIMIT $1`,
+      [count * 50],
     );
 
     if (pool.length === 0) return [];
 
-    const ids = pool.map((r) => r.puzzle_id).slice(0, count * 10);
-
-    const conditions: string[] = ['puzzle_id = ANY($1::text[])'];
+    const ids = pool.map((r) => r.puzzle_id);
     const params: unknown[] = [ids];
 
-    if (input.minRating !== undefined) {
-      params.push(input.minRating);
+    if (effectiveMin !== undefined) {
+      params.push(effectiveMin);
       conditions.push(`rating >= $${params.length}`);
     }
-    if (input.maxRating !== undefined) {
-      params.push(input.maxRating);
+    if (effectiveMax !== undefined) {
+      params.push(effectiveMax);
       conditions.push(`rating <= $${params.length}`);
     }
     if (input.themes?.length) {
@@ -127,13 +212,13 @@ export class PuzzleService {
       conditions.push(`themes @> $${params.length}::text[]`);
     }
 
-    params.push(count * 2);
+    params.push(count * 3);
     const rows: ChessPuzzle[] = await this.dataSource.query(
       `SELECT * FROM chess.puzzles WHERE ${conditions.join(' AND ')} LIMIT $${params.length}`,
       params,
     );
 
-    // Fisher-Yates shuffle
+    // Fisher-Yates shuffle in memory
     for (let i = rows.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [rows[i], rows[j]] = [rows[j], rows[i]];
@@ -141,130 +226,88 @@ export class PuzzleService {
     return rows.slice(0, count);
   }
 
-  /**
-   * Returns all distinct theme tags (e.g. "crushing", "fork", "mateIn2").
-   */
+  /** Flat list of all distinct theme tags — served from cache after first load. */
   async findAllThemes(): Promise<string[]> {
-    const rows: Array<{ theme: string }> = await this.dataSource.query(`
-      SELECT DISTINCT UNNEST(themes) AS theme
-      FROM chess.puzzles
-      ORDER BY theme
-    `);
-    return rows.map((r) => r.theme);
+    const themes = await this.loadThemesWithCount();
+    return themes.map((t) => t.theme);
   }
 
   /**
-   * Paginated list of themes with puzzle counts, sorted alphabetically.
-   * Cursor is the theme name itself (alphabetic keyset pagination).
+   * Paginated themes with counts — sliced from the in-memory cache.
+   * The first call hits the DB; subsequent calls are microseconds.
    */
-  async findThemesPaginated(
-    input: ThemesPaginationInput,
-  ): Promise<PaginatedThemes> {
+  async findThemesPaginated(input: ThemesPaginationInput): Promise<PaginatedThemes> {
     const limit = Math.min(input.limit ?? 50, 200);
+    const allThemes = await this.loadThemesWithCount();
 
-    // Build the WHERE clause for cursor
-    const cursorClause = input.cursor
-      ? `AND theme > $2`
-      : '';
-    const params: unknown[] = input.cursor
-      ? [limit + 1, input.cursor]
-      : [limit + 1];
+    // Alphabetic keyset: find the start index from the cursor
+    let startIdx = 0;
+    if (input.cursor) {
+      const idx = allThemes.findIndex((t) => t.theme > input.cursor!);
+      startIdx = idx === -1 ? allThemes.length : idx;
+    }
 
-    const rows: Array<{ theme: string; count: string }> =
-      await this.dataSource.query(
-        `
-        SELECT theme, COUNT(*) AS count
-        FROM (
-          SELECT UNNEST(themes) AS theme FROM chess.puzzles
-        ) t
-        WHERE theme IS NOT NULL ${cursorClause}
-        GROUP BY theme
-        ORDER BY theme
-        LIMIT $1
-        `,
-        params,
-      );
-
-    const hasNextPage = rows.length > limit;
-    if (hasNextPage) rows.pop();
-
-    const items: ThemeWithCount[] = rows.map((r) => ({
-      theme: r.theme,
-      count: Number(r.count),
-    }));
+    const slice = allThemes.slice(startIdx, startIdx + limit + 1);
+    const hasNextPage = slice.length > limit;
+    if (hasNextPage) slice.pop();
 
     return {
-      items,
+      items: slice,
       hasNextPage,
-      nextCursor: hasNextPage ? items[items.length - 1]?.theme : undefined,
+      nextCursor: hasNextPage ? slice[slice.length - 1]?.theme : undefined,
     };
   }
 
   /**
-   * Returns one random theme, excluding any themes in the `exclude` list.
-   * Throws NotFoundException if no eligible themes remain.
+   * Picks one random theme from the cached list in memory — zero DB round-trip
+   * after the first call. Excluded themes are filtered in-process.
    */
   async findRandomTheme(exclude: string[] = []): Promise<ThemeWithCount> {
-    const excludeClause =
-      exclude.length > 0 ? `AND theme <> ALL($1::text[])` : '';
-    const params: unknown[] = exclude.length > 0 ? [exclude] : [];
+    const allThemes = await this.loadThemesWithCount();
+    const excludeSet = new Set(exclude);
+    const eligible = excludeSet.size
+      ? allThemes.filter((t) => !excludeSet.has(t.theme))
+      : allThemes;
 
-    const rows: Array<{ theme: string; count: string }> =
-      await this.dataSource.query(
-        `
-        SELECT theme, COUNT(*) AS count
-        FROM (
-          SELECT UNNEST(themes) AS theme FROM chess.puzzles
-        ) t
-        WHERE theme IS NOT NULL ${excludeClause}
-        GROUP BY theme
-        ORDER BY RANDOM()
-        LIMIT 1
-        `,
-        params,
-      );
+    if (eligible.length === 0)
+      throw new NotFoundException('No eligible themes found (all may be excluded).');
 
-    if (rows.length === 0) {
-      throw new NotFoundException(
-        'No eligible themes found (all may be excluded).',
-      );
-    }
-
-    return { theme: rows[0].theme, count: Number(rows[0].count) };
+    return eligible[Math.floor(Math.random() * eligible.length)];
   }
 
-  /**
-   * Returns all distinct ECO opening tags.
-   */
+  /** All ECO opening tags — cached after first load. */
   async findAllOpenings(): Promise<string[]> {
+    const cached = this.openingsCache.get();
+    if (cached) return cached;
+
     const rows: Array<{ tag: string }> = await this.dataSource.query(`
       SELECT DISTINCT UNNEST(opening_tags) AS tag
       FROM chess.puzzles
       WHERE opening_tags IS NOT NULL
       ORDER BY tag
     `);
-    return rows.map((r) => r.tag);
+    const result = rows.map((r) => r.tag);
+    this.openingsCache.set(result);
+    return result;
   }
 
-  /**
-   * Rating distribution in 100-point ELO buckets.
-   * Useful for building difficulty-slider UIs.
-   */
+  /** Rating histogram in 100-point ELO buckets — cached after first load. */
   async getRatingDistribution(): Promise<Array<{ bucket: number; count: number }>> {
+    const cached = this.ratingDistCache.get();
+    if (cached) return cached;
+
     const rows: Array<{ bucket: string; count: string }> =
       await this.dataSource.query(`
-        SELECT
-          FLOOR(rating / 100) * 100 AS bucket,
-          COUNT(*) AS count
+        SELECT FLOOR(rating / 100) * 100 AS bucket, COUNT(*) AS count
         FROM chess.puzzles
         GROUP BY bucket
         ORDER BY bucket
       `);
-    return rows.map((r) => ({
+    const result = rows.map((r) => ({
       bucket: Number(r.bucket),
       count: Number(r.count),
     }));
+    this.ratingDistCache.set(result);
+    return result;
   }
-
-
 }

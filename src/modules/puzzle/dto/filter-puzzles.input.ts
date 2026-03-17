@@ -12,14 +12,43 @@ export enum SortOrder {
   DESC = 'DESC',
 }
 
+/**
+ * Convenience difficulty tiers mapped to Lichess Glicko-2 rating ranges:
+ *   BEGINNER    < 1000
+ *   EASY        1000 – 1499
+ *   INTERMEDIATE 1500 – 1999
+ *   HARD        2000 – 2499
+ *   EXPERT      2500+
+ *
+ * Stacks with explicit minRating / maxRating — the most restrictive value wins.
+ */
+export enum DifficultyTier {
+  BEGINNER = 'BEGINNER',
+  EASY = 'EASY',
+  INTERMEDIATE = 'INTERMEDIATE',
+  HARD = 'HARD',
+  EXPERT = 'EXPERT',
+}
+
 registerEnumType(PuzzleSortField, { name: 'PuzzleSortField' });
 registerEnumType(SortOrder, { name: 'SortOrder' });
+registerEnumType(DifficultyTier, {
+  name: 'DifficultyTier',
+  description:
+    'Puzzle difficulty based on Lichess Glicko-2 rating. ' +
+    'BEGINNER <1000 · EASY 1000-1499 · INTERMEDIATE 1500-1999 · HARD 2000-2499 · EXPERT 2500+',
+});
 
 @InputType()
 export class FilterPuzzlesInput {
-  /** Minimum rating (inclusive) */
+  /**
+   * Shorthand difficulty tier. Translates to a rating range.
+   * Stacks with minRating / maxRating — the tighter bound always wins.
+   */
+  @Field(() => DifficultyTier, { nullable: true }) difficulty?: DifficultyTier;
+  /** Minimum rating (inclusive) — overrides the tier lower bound if tighter */
   @Field(() => Int, { nullable: true }) minRating?: number;
-  /** Maximum rating (inclusive) */
+  /** Maximum rating (inclusive) — overrides the tier upper bound if tighter */
   @Field(() => Int, { nullable: true }) maxRating?: number;
   /** All supplied theme tags must be present on the puzzle */
   @Field(() => [String], { nullable: true }) themes?: string[];
