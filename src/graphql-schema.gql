@@ -39,9 +39,83 @@ type PlayersResponseDTO {
   data: [PlayerDTO!]
 }
 
+type ChessPuzzle {
+  id: Int!
+  puzzle_id: String!
+  fen: String!
+  moves: String!
+  rating: Int!
+  rating_deviation: Int!
+  popularity: Int!
+  nb_plays: Int!
+  themes: [String!]!
+  game_url: String
+  opening_tags: [String!]
+}
+
+type PaginatedPuzzles {
+  items: [ChessPuzzle!]!
+  hasNextPage: Boolean!
+  nextCursor: String
+}
+
+type ThemeWithCount {
+  theme: String!
+  count: Int!
+}
+
+type PaginatedThemes {
+  items: [ThemeWithCount!]!
+  hasNextPage: Boolean!
+  nextCursor: String
+}
+
 type Query {
   topPlayers(limit: Int! = 100, includeHistory: Boolean! = false): [PlayerDTO!]!
   playerHistory(fideId: String!): [HistoryEntry!]!
   playerInfo(fideId: String!, includeHistory: Boolean! = false): PlayerResponseDTO!
   multiplePlayersInfo(fideIds: [String!]!): PlayersResponseDTO!
+  chessPuzzles(filter: FilterPuzzlesInput): PaginatedPuzzles!
+  chessPuzzle(puzzleId: String!): ChessPuzzle!
+  randomChessPuzzles(input: RandomPuzzleInput): [ChessPuzzle!]!
+  chessPuzzleThemes: [String!]!
+  chessPuzzleThemesPaginated(input: ThemesPaginationInput): PaginatedThemes!
+  randomChessPuzzleTheme(exclude: [String!] = []): ThemeWithCount!
+  chessPuzzleOpenings: [String!]!
+  chessPuzzleRatingDistribution: String!
+}
+
+input FilterPuzzlesInput {
+  minRating: Int
+  maxRating: Int
+  themes: [String!]
+  openingTags: [String!]
+  minPopularity: Int
+  cursor: String
+  limit: Int
+  sortBy: PuzzleSortField
+  sortOrder: SortOrder
+}
+
+enum PuzzleSortField {
+  RATING
+  POPULARITY
+  NB_PLAYS
+}
+
+enum SortOrder {
+  ASC
+  DESC
+}
+
+input RandomPuzzleInput {
+  count: Int
+  minRating: Int
+  maxRating: Int
+  themes: [String!]
+}
+
+input ThemesPaginationInput {
+  limit: Int
+  cursor: String
 }
